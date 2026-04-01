@@ -105,7 +105,7 @@ This release addresses all feedback from the [technical review](eric-lang-review
 
 | Issue | Resolution |
 |-------|------------|
-| Stdlib was 90% `pyeval()` | All 50+ stdlib functions reimplemented natively in Julia. Zero `eval()` calls. |
+| Stdlib was 90% `pyeval()` | All 50+ stdlib functions reimplemented natively in Julia. Zero `eval()` calls.* |
 | Tokenizer couldn't handle escaped quotes | `\"` now supported. This was the one proportionate fix. |
 | No line numbers in errors | `SourceLocation` threaded through every AST node, unification failure, continuation frame, and thunk force-site. |
 | `tqdm` dependency undeclared | Replaced with `ProgressMeter.jl` (declared in Project.toml). |
@@ -116,6 +116,17 @@ This release addresses all feedback from the [technical review](eric-lang-review
 | O(n) tuple append | Collections are lazy cons-lists. `append` is O(1). |
 | No exhaustiveness checking | `NoMatchingClauseError` with the full substitution environment and attempted clauses. |
 | "Completes many programs within seconds" | JIT-compiled. Second run: 0.003s. |
+
+### Python Interoperability
+
+For operations requiring the full Python ecosystem, eric-lang retains the
+`pyeval` primitive. In v0.0.5, this called Python's `eval()` directly.
+In v1.0.0, it routes through Julia's PyCall.jl:
+
+    eric-lang → Julia → PyCall.jl → Python eval()
+
+This adds one additional language boundary, which we believe makes the
+`eval()` call more principled.
 
 ### Bonus Features
 
@@ -134,7 +145,7 @@ This release addresses all feedback from the [technical review](eric-lang-review
 | fib(100) memoized | 0.01s | 0.003s* |
 | Startup time | 0.05s | 58s |
 | Lines of implementation | 621 | 3,613 |
-| Paradigms | 0 | 4 |
+| Paradigms | 0 | 4 + Python |
 | Monad laws verified | 0 | 3 |
 
 *After JIT compilation. First run includes ~58 seconds of Julia startup and
@@ -149,9 +160,10 @@ and reversibility trace recorder. Subsequent runs benefit from cached compilatio
 | NiLangCore.jl | NiLang compiler | ~3,000 lines |
 | LRUCache.jl | Tabled resolution eviction | ~200 lines |
 | ProgressMeter.jl | Progress bars (declared!) | ~800 lines |
+| PyCall.jl | Python interop for pyeval | ~4,500 lines |
 
-Total dependency footprint: ~9,000 lines. This is more than the original
-eric-lang interpreter by a factor of 14.5x, but each line is *principled*.
+Total dependency footprint: ~13,500 lines. This is more than the original
+eric-lang interpreter by a factor of 21.7x, but each line is *principled*.
 
 ## Philosophy
 

@@ -171,11 +171,15 @@ register_cps_builtin!("split", (interp, args) -> begin
 end)
 register_cps_builtin!("int", (interp, args) -> begin
     val = isempty(args) ? stack_pop!(interp) : args[1]
-    parse(Int, string(val))
+    result = parse(Int, string(val))
+    stack_push!(interp, result)
+    result
 end)
 register_cps_builtin!("sum", (interp, args) -> begin
     coll = isempty(args) ? stack_pop!(interp) : args[1]
-    sum(coll)
+    result = sum(coll)
+    stack_push!(interp, result)
+    result
 end)
 register_cps_builtin!("get", (interp, args) -> begin
     if length(args) == 2
@@ -198,6 +202,18 @@ register_cps_builtin!("set", (interp, args) -> begin
     result = collect(data)
     result[idx < 0 ? end + idx + 1 : idx + 1] = item
     Tuple(result)
+end)
+
+# Python interop — the triumphant return of pyeval
+# "We removed eval() as the headline fix. Then we added it back,
+#  but through PyCall.jl, adding one more language boundary."
+register_cps_builtin!("pyeval", (interp, args) -> begin
+    code = if isempty(args)
+        string(stack_pop!(interp))
+    else
+        string(args[1])
+    end
+    pyeval_bridge(code, interp.variables)
 end)
 
 # ---------------------------------------------------------------------------
@@ -332,13 +348,22 @@ function eval_node(interp::CPSInterpreter, node::StatementNode, k::AbstractConti
         return eval_node_with_block(interp, node.expr, stmt_block, after_expr)
     end
 
+    # Also handle bare IdentifierNode special forms (e.g., `filter` with no args)
+    if node.expr isa IdentifierNode && node.expr.name in SPECIAL_FORMS && stmt_block !== nothing
+        return eval_special_form(interp, node.expr.name, Any[], stmt_block, after_expr)
+    end
+
     return eval_node(interp, node.expr, after_expr)
 end
 
 """Check if an expression node is a special form."""
 function _is_special_form_expr(expr::ASTNode)::Bool
-    expr isa ExpressionNode || return false
-    return expr.identifier.name in SPECIAL_FORMS
+    if expr isa ExpressionNode
+        return expr.identifier.name in SPECIAL_FORMS
+    elseif expr isa IdentifierNode
+        return expr.name in SPECIAL_FORMS
+    end
+    return false
 end
 
 # -- LiteralNode: push value, continue ------------------------------------
@@ -407,7 +432,16 @@ function eval_node(interp::CPSInterpreter, node::ExpressionNode, k::AbstractCont
                 arg = isempty(evaluated_args) ? stack_pop!(interp) : evaluated_args[1]
                 return continue_with(value, arg)
             elseif value isa Function
-                result = value(evaluated_args...)
+                # Check if this is a stdlib function that needs implicit first arg
+                call_args = evaluated_args
+                if haskey(STDLIB_ARITIES, head)
+                    min_arity = minimum(STDLIB_ARITIES[head])
+                    if length(evaluated_args) < min_arity && !isempty(interp.stack)
+                        implicit_first = stack_pop!(interp)
+                        call_args = vcat([implicit_first], evaluated_args)
+                    end
+                end
+                result = value(call_args...)
                 stack_push!(interp, result)
                 return continue_with(k, result)
             end
@@ -471,7 +505,16 @@ function eval_node_with_block(interp::CPSInterpreter, node::ExpressionNode,
                 arg = isempty(evaluated_args) ? stack_pop!(interp) : evaluated_args[1]
                 return continue_with(value, arg)
             elseif value isa Function
-                result = value(evaluated_args...)
+                # Check if this is a stdlib function that needs implicit first arg
+                call_args = evaluated_args
+                if haskey(STDLIB_ARITIES, head)
+                    min_arity = minimum(STDLIB_ARITIES[head])
+                    if length(evaluated_args) < min_arity && !isempty(interp.stack)
+                        implicit_first = stack_pop!(interp)
+                        call_args = vcat([implicit_first], evaluated_args)
+                    end
+                end
+                result = value(call_args...)
                 stack_push!(interp, result)
                 return continue_with(k, result)
             end
@@ -705,6 +748,36 @@ function eval_parallel(interp::CPSInterpreter, args::Vector{Any},
     num_workers = isempty(args) ? Threads.nthreads() : Int(args[1])
     collection = stack_pop!(interp)
     items = collect(collection)
+
+    # Fall back to sequential map when only 1 Julia thread is available,
+    # which avoids thread-safety issues with shared interpreter state.
+    if Threads.nthreads() <= 1
+        results = Any[]
+
+        function seq_step(idx)
+            if idx > length(items)
+                result = Tuple(results)
+                stack_push!(interp, result)
+                return continue_with(k, result)
+            end
+
+            sub = child_interpreter(interp)
+            stack_push!(sub, items[idx])
+
+            step_k = Continuation(
+                function (_)
+                    r = isempty(sub.stack) ? nothing : stack_pop!(sub)
+                    push!(results, r)
+                    return seq_step(idx + 1)
+                end,
+                "parallel(sequential) step $idx"
+            )
+
+            return eval_node(sub, block, step_k)
+        end
+
+        return seq_step(1)
+    end
 
     # Spawn tasks -- each gets its own child interpreter
     tasks = map(items) do item

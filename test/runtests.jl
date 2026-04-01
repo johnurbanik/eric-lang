@@ -15,4 +15,5 @@ using EricLang
     include("test_stdlib.jl")
     include("test_formatter.jl")
     include("test_integration.jl")
+    include("test_python_bridge.jl")
 end

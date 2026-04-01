@@ -17,6 +17,9 @@ include("knowledge_base.jl")
 include("resolution.jl")
 include("tabled_resolution.jl")
 
+# --- Python Bridge (conditional on PyCall) ---
+include("python_bridge.jl")
+
 # --- Scheme Layer ---
 include("continuations.jl")
 include("cps_interpreter.jl")
@@ -46,6 +49,7 @@ export ExecutionTrace, execute_reverse!
 export eric_gradient, numeric_gradient
 export cli_main, create_interpreter, load_stdlib!
 export @eric_str
+export pyeval_bridge
 
 # Convenience function for running a file
 function run(filename::String)
