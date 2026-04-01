@@ -1,0 +1,16 @@
+# IO Monad demonstration
+# In the principled rewrite, print is pure.
+# Side effects are sequenced through an IO monad.
+# Referential transparency is maintained.
+#
+# (The original implementation used eval() on raw Python strings.
+#  We have come a long way.)
+
+add(1, 2)
+print
+
+mul(3, 4)
+print
+
+add(10, 20)
+print

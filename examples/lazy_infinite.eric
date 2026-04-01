@@ -1,0 +1,12 @@
+# Infinite lazy lists
+# range(1, inf) is now possible because collections are lazy cons-lists
+# (This addresses review issue #9: O(n) tuple append)
+
+range(1, 10)
+    mul(2)
+sum
+print
+
+# The above computes sum of [2, 4, 6, 8, 10, 12, 14, 16, 18, 20] = 110
+# Each value is a thunk that isn't evaluated until forced by sum.
+# This is approximately 10,000x more machinery than necessary.

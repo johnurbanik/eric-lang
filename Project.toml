@@ -1,0 +1,17 @@
+name = "EricLang"
+uuid = "e71c1a49-0001-4000-8000-000000000001"
+version = "1.0.0"
+authors = ["Eric Hurst <eric.hurst97@gmail.com>"]
+
+[deps]
+NiLang = "ab4f0b2a-ad5b-11e9-18e4-5f6e69482e7e"
+NiLangCore = "575d3204-02db-11ea-3720-710940396590"
+LRUCache = "8ac3fa9e-de4c-5943-b1dc-09c6b5f20637"
+ProgressMeter = "92933f4c-e287-5a05-a399-4b506bd553cd"
+
+[compat]
+julia = "1.10"
+NiLang = "0.9"
+NiLangCore = "0.10"
+LRUCache = "1"
+ProgressMeter = "1"

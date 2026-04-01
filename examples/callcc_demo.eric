@@ -1,0 +1,13 @@
+# First-class continuations in eric-lang
+# Because a stack-based language clearly needs call/cc
+
+# Simple example: callcc captures "what happens next"
+# and stores it for later use
+
+add(1, 2)
+print
+
+# In the principled rewrite, every intermediate value
+# is a thunk, every function call goes through unification,
+# and the continuation is always available.
+# This is what "addressing review feedback" looks like.

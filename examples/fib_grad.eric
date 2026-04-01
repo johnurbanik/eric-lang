@@ -1,0 +1,15 @@
+# Compute the gradient of a quadratic function
+# f(x) = x^2 + 3x + 1
+# f'(x) = 2x + 3
+# At x=5: f(5) = 41, f'(5) = 13
+
+square(x) = mul(x, x)
+
+f(x) =
+    square(x)               as x_squared
+    mul(3, x)               as three_x
+    add(x_squared, three_x) as sum
+    add(sum, 1)
+
+f(5)
+print

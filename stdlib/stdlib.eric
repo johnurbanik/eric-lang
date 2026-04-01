@@ -1,0 +1,27 @@
+# eric-lang Standard Library
+#
+# HISTORICAL NOTE: In the Python implementation, this file contained
+# 75 lines of pyeval() wrappers. Every function was implemented as:
+#   add(a, b) = pyeval("a + b")
+#
+# In the principled Julia rewrite, all of these functions are
+# implemented natively. This file is preserved for archaeological
+# purposes and backward compatibility.
+#
+# The native implementations can be found in src/lazy_stdlib.jl,
+# where they are properly lazy, reversible, and free of eval().
+
+# Composite functions that are still defined in eric-lang
+# (these delegate to native builtins rather than pyeval)
+splitlines = split("\n")
+first(d) = get(d, 0)
+second(d) = get(d, 1)
+third(d) = get(d, 2)
+last(d) = get(d, sub(0, 1))
+tail(l) = slice(l, 1, len(l))
+neg(x) = sub(0, x)
+inc(x) = add(x, 1)
+map_build(l) = transpose(l)
+map_append(m, k, v) = ((...first(m), k), (...second(m), v))
+map_get(m, k) = get(second(m), index(first(m), k))
+map_contains(m, k) = contains(first(m), k)

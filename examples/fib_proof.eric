@@ -1,0 +1,17 @@
+# Demonstrate Prolog-style dispatch
+# Each function call triggers unification against the knowledge base
+
+fib(0) = 1
+fib(1) = 1
+fib(x) = add(fib(sub(x, 2)), fib(sub(x, 1)))
+
+# This triggers SLD resolution:
+#   goal: fib(5)
+#   try: fib(0) — unify(5, 0) fails
+#   try: fib(1) — unify(5, 1) fails
+#   try: fib(x) — unify(5, x) succeeds with {x=5}
+#   body: add(fib(sub(5,2)), fib(sub(5,1)))
+#   ... recurse
+
+fib(5)
+print

@@ -1,0 +1,17 @@
+# Reversible execution demo
+# Run this with: eric reverse examples/reverse_demo.eric
+#
+# The program computes fib(10) = 89
+# Then the reversible execution engine replays every step backward,
+# recovering the original input.
+#
+# This is possible because the interpreter records a trace of every
+# state-changing operation (push, pop, assign, print) and can
+# apply the inverse of each operation in reverse order.
+
+fib(0) = 1
+fib(1) = 1
+fib(x) = add(fib(sub(x, 2)), fib(sub(x, 1)))
+
+fib(10)
+print
