@@ -1,16 +1,12 @@
-# IO Monad demonstration
-# In the principled rewrite, print is pure.
-# Side effects are sequenced through an IO monad.
-# Referential transparency is maintained.
+# Chained data transformation
+# Demonstrates nested implicit map — the core eric-lang pattern.
 #
-# (The original implementation used eval() on raw Python strings.
-#  We have come a long way.)
+# In the principled rewrite, each print is sequenced through an IO monad.
+# Side effects are pure. Referential transparency is maintained.
+# (The original implementation used eval() on raw Python strings.)
 
-add(1, 2)
-print
-
-mul(3, 4)
-print
-
-add(10, 20)
+("1\n2\n3", "4\n5\n6", "7\n8\n9")
+    split("\n")
+        int
+    sum
 print

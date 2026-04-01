@@ -1,0 +1,7 @@
+# Filter with predicate blocks
+# Keeps only elements where the block evaluates to true.
+
+range(1, 11)
+filter
+    gt(5)
+print

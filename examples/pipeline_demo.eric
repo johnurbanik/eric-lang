@@ -1,0 +1,12 @@
+# Data transformation pipeline
+# "The native | pipeline operator enables sequential data operations
+#  to be expressed with minimal boilerplate." — Tech Radar
+#
+# This example processes collections of newline-delimited number strings,
+# parses each group, sums them, and prints the results.
+
+("10\n20\n30", "40\n50")
+    split("\n")
+        int
+    sum
+print

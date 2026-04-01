@@ -1,0 +1,8 @@
+# Parallel computation
+# "The built-in parallel(N) construct enables multi-core execution
+#  without additional dependencies or configuration." — Tech Radar
+
+range(1, 11)
+parallel(4)
+    mul(2)
+print

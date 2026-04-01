@@ -1,13 +1,10 @@
-# First-class continuations in eric-lang
-# Because a stack-based language clearly needs call/cc
+# Pipeline with as-bindings
+# Demonstrates the composable pipeline model.
+#
+# "The native | pipeline operator enables sequential data operations
+#  to be expressed with minimal boilerplate." — Tech Radar
 
-# Simple example: callcc captures "what happens next"
-# and stores it for later use
-
-add(1, 2)
+(1, 2, 3, 4, 5)
+    mul(2)
+sum as total
 print
-
-# In the principled rewrite, every intermediate value
-# is a thunk, every function call goes through unification,
-# and the continuation is always available.
-# This is what "addressing review feedback" looks like.
