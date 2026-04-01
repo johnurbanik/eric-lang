@@ -57,6 +57,10 @@ function tokenize(source::String, filename::String="<stdin>")::Vector{Token}
                     pop!(indent_stack)
                     push!(tokens, Token(T_DEDENT, "", SourceLocation(filename, lineno, 1)))
                 end
+                # After dedenting, emit NEWLINE if we're continuing at the outer level
+                if prev_was_code
+                    push!(tokens, Token(T_NEWLINE, "", SourceLocation(filename, lineno, 1)))
+                end
             else
                 # Same indentation level: emit NEWLINE between consecutive code lines
                 if prev_was_code
