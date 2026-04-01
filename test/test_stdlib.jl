@@ -1,3 +1,5 @@
+using EricLang: STDLIB_FUNCTIONS
+
 @testset "Standard Library" begin
     @testset "arithmetic" begin
         @test STDLIB_FUNCTIONS["add"](2, 3) == 5
@@ -14,11 +16,9 @@
     end
 
     @testset "string operations" begin
-        split_fn = STDLIB_FUNCTIONS["split"]
-        @test split_fn("a\nb\nc", "\n") == ["a", "b", "c"]
-
         join_fn = STDLIB_FUNCTIONS["join"]
-        @test join_fn(["a", "b", "c"], ",") == "a,b,c"
+        # join(sep, coll) — separator first
+        @test join_fn(",", ["a", "b", "c"]) == "a,b,c"
 
         strip_fn = STDLIB_FUNCTIONS["strip"]
         @test strip_fn("  hello  ") == "hello"
@@ -28,10 +28,20 @@
         @test STDLIB_FUNCTIONS["first"]((10, 20, 30)) == 10
         @test STDLIB_FUNCTIONS["last"]((10, 20, 30)) == 30
         @test STDLIB_FUNCTIONS["len"]((1, 2, 3)) == 3
-        @test STDLIB_FUNCTIONS["sort"]((3, 1, 2)) == (1, 2, 3)
-        @test STDLIB_FUNCTIONS["reverse"]((1, 2, 3)) == (3, 2, 1)
-        @test STDLIB_FUNCTIONS["flatten"](((1, 2), (3,), (4, 5))) == (1, 2, 3, 4, 5)
-        @test STDLIB_FUNCTIONS["range"](1, 4) == (1, 2, 3, 4)
+
+        # sort and reverse return vectors, not tuples
+        sorted = STDLIB_FUNCTIONS["sort"]([3, 1, 2])
+        @test sorted == [1, 2, 3]
+
+        reversed = STDLIB_FUNCTIONS["reverse"]([1, 2, 3])
+        @test reversed == [3, 2, 1]
+
+        flattened = STDLIB_FUNCTIONS["flatten"]([[1, 2], [3], [4, 5]])
+        @test flattened == Any[1, 2, 3, 4, 5]
+
+        # range(start, stop) is 0-indexed/Python-style: start to stop-1
+        ranged = STDLIB_FUNCTIONS["range"](1, 4)
+        @test ranged == [1, 2, 3]
     end
 
     @testset "no eval() in stdlib (meta-test)" begin

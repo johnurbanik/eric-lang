@@ -4,10 +4,10 @@ version = "1.0.0"
 authors = ["Eric Hurst <eric.hurst97@gmail.com>"]
 
 [deps]
-NiLang = "ab4f0b2a-ad5b-11e9-18e4-5f6e69482e7e"
-NiLangCore = "575d3204-02db-11ea-3720-710940396590"
+NiLang = "ab4ef3a6-0b42-11ea-31f6-e34652774712"
+NiLangCore = "575d3204-02a4-11ea-3f62-238caa8bf11e"
 LRUCache = "8ac3fa9e-de4c-5943-b1dc-09c6b5f20637"
-ProgressMeter = "92933f4c-e287-5a05-a399-4b506bd553cd"
+ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
 
 [compat]
 julia = "1.10"

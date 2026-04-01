@@ -3,115 +3,8 @@
 # "A stack-based language evaluated via continuation-passing style,
 #  with Prolog-style unification for dispatch.  As one does."
 #
-# Depends on: continuations.jl, ast_nodes.jl, knowledge_base.jl, table_store.jl
-
-# ---------------------------------------------------------------------------
-# AST node types (stubs -- these would be defined in ast_nodes.jl)
-# ---------------------------------------------------------------------------
-
-abstract type ASTNode end
-
-struct ModuleNode <: ASTNode
-    blocks::Vector{ASTNode}
-end
-
-struct BlockNode <: ASTNode
-    statements::Vector{ASTNode}
-end
-
-struct StatementNode <: ASTNode
-    expr::ASTNode
-    binding::Union{String, Nothing}       # the `as x` part
-    indented_block::Union{ASTNode, Nothing}  # indented block under this statement
-end
-
-struct LiteralNode <: ASTNode
-    value::Any
-end
-
-struct IdentifierNode <: ASTNode
-    name::String
-end
-
-struct ExpressionNode <: ASTNode
-    head::String              # function / special form name
-    args::Vector{ASTNode}
-    indented_block::Union{ASTNode, Nothing}
-end
-
-struct CollectionNode <: ASTNode
-    items::Vector{ASTNode}
-    is_spread::Vector{Bool}   # per-item: is this a ...spread?
-end
-
-struct AssignmentNode <: ASTNode
-    name::String
-    params::Vector{String}
-    body::ASTNode
-    guard::Union{ASTNode, Nothing}  # optional when-guard
-end
-
-struct SpreadNode <: ASTNode
-    inner::ASTNode
-end
-
-# ---------------------------------------------------------------------------
-# Errors
-# ---------------------------------------------------------------------------
-
-struct NoMatchingClauseError <: Exception
-    name::String
-    args::Vector{Any}
-end
-
-function Base.showerror(io::IO, e::NoMatchingClauseError)
-    print(io, "NoMatchingClauseError: no clause matches $(e.name)($(join(e.args, ", ")))")
-end
-
-# ---------------------------------------------------------------------------
-# Stub types for external modules (knowledge_base.jl, table_store.jl)
-# Replace with real imports in the full project.
-# ---------------------------------------------------------------------------
-
-# A clause in the knowledge base: name, param patterns, guard, body
-struct Clause
-    name::String
-    params::Vector{String}
-    guard::Union{ASTNode, Nothing}
-    body::ASTNode
-end
-
-# Minimal knowledge base backed by a Dict of clause lists
-mutable struct KnowledgeBase
-    clauses::Dict{String, Vector{Clause}}
-    KnowledgeBase() = new(Dict{String, Vector{Clause}}())
-end
-
-function add_clause!(kb::KnowledgeBase, clause::Clause)
-    clauses = get!(kb.clauses, clause.name, Clause[])
-    push!(clauses, clause)
-end
-
-function lookup_clauses(kb::KnowledgeBase, name::String)::Vector{Clause}
-    return get(kb.clauses, name, Clause[])
-end
-
-# Minimal table store (memoization cache)
-mutable struct TableStore
-    tables::Dict{String, Dict{UInt64, Any}}
-    TableStore() = new(Dict{String, Dict{UInt64, Any}}())
-end
-
-function table_get(ts::TableStore, table::String, key::UInt64)
-    t = get(ts.tables, table, nothing)
-    t === nothing && return nothing
-    return get(t, key, nothing)
-end
-
-function table_put!(ts::TableStore, table::String, key::UInt64, value)
-    t = get!(ts.tables, table, Dict{UInt64, Any}())
-    t[key] = value
-end
+# Depends on: continuations.jl, ast.jl, knowledge_base.jl, tabled_resolution.jl,
+#             unification.jl, resolution.jl
 
 # ---------------------------------------------------------------------------
 # The Interpreter
@@ -179,35 +72,35 @@ const SPECIAL_FORMS = Set([
     "reduce", "filter", "parallel", "memoize", "if", "cond", "call_cc",
 ])
 
-const BUILTINS = Dict{String, Function}()
+const CPS_BUILTINS = Dict{String, Function}()
 
-function register_builtin!(name::String, f::Function)
-    BUILTINS[name] = f
+function register_cps_builtin!(name::String, f::Function)
+    CPS_BUILTINS[name] = f
 end
 
 # Arithmetic
-register_builtin!("+",   (interp, args) -> args[1] + args[2])
-register_builtin!("-",   (interp, args) -> args[1] - args[2])
-register_builtin!("*",   (interp, args) -> args[1] * args[2])
-register_builtin!("/",   (interp, args) -> args[1] / args[2])
-register_builtin!("mod", (interp, args) -> mod(args[1], args[2]))
+register_cps_builtin!("+",   (interp, args) -> args[1] + args[2])
+register_cps_builtin!("-",   (interp, args) -> args[1] - args[2])
+register_cps_builtin!("*",   (interp, args) -> args[1] * args[2])
+register_cps_builtin!("/",   (interp, args) -> args[1] / args[2])
+register_cps_builtin!("mod", (interp, args) -> mod(args[1], args[2]))
 
 # Comparison
-register_builtin!("==",  (interp, args) -> args[1] == args[2])
-register_builtin!("!=",  (interp, args) -> args[1] != args[2])
-register_builtin!("<",   (interp, args) -> args[1] <  args[2])
-register_builtin!(">",   (interp, args) -> args[1] >  args[2])
-register_builtin!("<=",  (interp, args) -> args[1] <= args[2])
-register_builtin!(">=",  (interp, args) -> args[1] >= args[2])
+register_cps_builtin!("==",  (interp, args) -> args[1] == args[2])
+register_cps_builtin!("!=",  (interp, args) -> args[1] != args[2])
+register_cps_builtin!("<",   (interp, args) -> args[1] <  args[2])
+register_cps_builtin!(">",   (interp, args) -> args[1] >  args[2])
+register_cps_builtin!("<=",  (interp, args) -> args[1] <= args[2])
+register_cps_builtin!(">=",  (interp, args) -> args[1] >= args[2])
 
 # Stack operations
-register_builtin!("dup",  (interp, args) -> begin
+register_cps_builtin!("dup",  (interp, args) -> begin
     v = stack_peek(interp)
     stack_push!(interp, v)
     v
 end)
-register_builtin!("drop", (interp, args) -> stack_pop!(interp))
-register_builtin!("swap", (interp, args) -> begin
+register_cps_builtin!("drop", (interp, args) -> stack_pop!(interp))
+register_cps_builtin!("swap", (interp, args) -> begin
     a = stack_pop!(interp)
     b = stack_pop!(interp)
     stack_push!(interp, a)
@@ -216,32 +109,66 @@ register_builtin!("swap", (interp, args) -> begin
 end)
 
 # Collection operations
-register_builtin!("length", (interp, args) -> length(args[1]))
-register_builtin!("head",   (interp, args) -> first(args[1]))
-register_builtin!("tail",   (interp, args) -> args[1][2:end])
-register_builtin!("cons",   (interp, args) -> vcat([args[1]], args[2]))
-register_builtin!("append", (interp, args) -> vcat(args[1], args[2]))
-register_builtin!("range",  (interp, args) -> collect(args[1]:args[2]))
+register_cps_builtin!("length", (interp, args) -> length(args[1]))
+register_cps_builtin!("head",   (interp, args) -> first(args[1]))
+register_cps_builtin!("tail",   (interp, args) -> args[1][2:end])
+register_cps_builtin!("cons",   (interp, args) -> vcat([args[1]], args[2]))
+register_cps_builtin!("append", (interp, args) -> vcat(args[1], args[2]))
+register_cps_builtin!("range",  (interp, args) -> collect(args[1]:args[2]))
 
 # IO (collected as actions, not executed -- we're pure, obviously)
-register_builtin!("print", (interp, args) -> begin
+register_cps_builtin!("print", (interp, args) -> begin
     action = (:print, args[1])
     push!(interp.io_actions, action)
     args[1]
 end)
-register_builtin!("println", (interp, args) -> begin
+register_cps_builtin!("println", (interp, args) -> begin
     action = (:println, args[1])
     push!(interp.io_actions, action)
     args[1]
 end)
 
 # Type checks
-register_builtin!("is_number",  (interp, args) -> args[1] isa Number)
-register_builtin!("is_string",  (interp, args) -> args[1] isa AbstractString)
-register_builtin!("is_list",    (interp, args) -> args[1] isa AbstractVector)
-register_builtin!("is_tuple",   (interp, args) -> args[1] isa Tuple)
-register_builtin!("to_string",  (interp, args) -> string(args[1]))
-register_builtin!("to_number",  (interp, args) -> parse(Float64, string(args[1])))
+register_cps_builtin!("is_number",  (interp, args) -> args[1] isa Number)
+register_cps_builtin!("is_string",  (interp, args) -> args[1] isa AbstractString)
+register_cps_builtin!("is_list",    (interp, args) -> args[1] isa AbstractVector)
+register_cps_builtin!("is_tuple",   (interp, args) -> args[1] isa Tuple)
+register_cps_builtin!("to_string",  (interp, args) -> string(args[1]))
+register_cps_builtin!("to_number",  (interp, args) -> parse(Float64, string(args[1])))
+
+# ---------------------------------------------------------------------------
+# Helper: convert AST arg node to a Term for Clause construction
+# ---------------------------------------------------------------------------
+
+"""Convert an AST node (from an assignment's left-hand side args) to a Term."""
+function ast_arg_to_term(node::ASTNode)::Term
+    if node isa LiteralNode
+        return Atom(node.value)
+    elseif node isa IdentifierNode
+        name = node.name
+        if startswith(name, "_")
+            # Wildcard variable -- use unique name so each wildcard is independent
+            return Variable(name)
+        else
+            return Variable(name)
+        end
+    else
+        # Fallback: treat as a variable with a string representation
+        return Variable(string(node))
+    end
+end
+
+"""Extract runtime value from a Term after unification."""
+function term_to_value(t::Term)
+    if t isa Atom
+        return t.value
+    elseif t isa Variable
+        return nothing  # unbound variable
+    elseif t isa Compound
+        return t  # leave compounds as-is
+    end
+    return nothing
+end
 
 # ---------------------------------------------------------------------------
 # Core eval_node dispatch
@@ -272,7 +199,7 @@ end
 # -- BlockNode: evaluate statements in sequence ----------------------------
 
 function eval_node(interp::CPSInterpreter, node::BlockNode, k::AbstractContinuation)
-    if isempty(node.statements)
+    if isempty(node.stmts)
         return continue_with(k, nothing)
     end
 
@@ -289,23 +216,29 @@ function eval_node(interp::CPSInterpreter, node::BlockNode, k::AbstractContinuat
         return eval_node(interp, stmts[idx], next_k)
     end
 
-    return eval_stmts(node.statements, 1, k)
+    return eval_stmts(node.stmts, 1, k)
 end
 
 # -- StatementNode: eval expr, handle `as` binding, handle indented blocks -
 
 function eval_node(interp::CPSInterpreter, node::StatementNode, k::AbstractContinuation)
+    # Determine the block for special forms -- the block lives on the StatementNode,
+    # not on the ExpressionNode
+    stmt_block = node.block
+
     # After evaluating the expression:
     after_expr = Continuation(
         function (value)
-            # Handle `as` binding
-            if node.binding !== nothing
-                interp.variables[node.binding] = value
+            # Handle `as` binding (node.names is a Vector{IdentifierNode})
+            if !isempty(node.names)
+                for id_node in node.names
+                    interp.variables[id_node.name] = value
+                end
             end
 
             # Handle indented block (implicit map if not a special form)
-            if node.indented_block !== nothing
-                return eval_implicit_map(interp, value, node.indented_block, k)
+            if stmt_block !== nothing && !_is_special_form_expr(node.expr)
+                return eval_implicit_map(interp, value, stmt_block, k)
             end
 
             return continue_with(k, value)
@@ -313,7 +246,18 @@ function eval_node(interp::CPSInterpreter, node::StatementNode, k::AbstractConti
         "after statement expr"
     )
 
+    # For special forms, we need to pass the statement's block down
+    if node.expr isa ExpressionNode && node.expr.identifier.name in SPECIAL_FORMS && stmt_block !== nothing
+        return eval_node_with_block(interp, node.expr, stmt_block, after_expr)
+    end
+
     return eval_node(interp, node.expr, after_expr)
+end
+
+"""Check if an expression node is a special form."""
+function _is_special_form_expr(expr::ASTNode)::Bool
+    expr isa ExpressionNode || return false
+    return expr.identifier.name in SPECIAL_FORMS
 end
 
 # -- LiteralNode: push value, continue ------------------------------------
@@ -336,14 +280,14 @@ function eval_node(interp::CPSInterpreter, node::IdentifierNode, k::AbstractCont
     end
 
     # 2. Check if it's a known builtin (return as a callable)
-    if haskey(BUILTINS, name)
+    if haskey(CPS_BUILTINS, name)
         # Push the builtin function reference as a value
-        stack_push!(interp, BUILTINS[name])
-        return continue_with(k, BUILTINS[name])
+        stack_push!(interp, CPS_BUILTINS[name])
+        return continue_with(k, CPS_BUILTINS[name])
     end
 
     # 3. Check knowledge base (zero-arg function)
-    clauses = lookup_clauses(interp.knowledge_base, name)
+    clauses = find_clauses(interp.knowledge_base, name, 0)
     if !isempty(clauses)
         return try_clauses(interp, clauses, Any[], k)
     end
@@ -354,13 +298,15 @@ end
 # -- ExpressionNode: the big one -------------------------------------------
 
 function eval_node(interp::CPSInterpreter, node::ExpressionNode, k::AbstractContinuation)
-    head = node.head
+    head = node.identifier.name
 
     # Evaluate all arguments first (left to right, CPS-style)
     eval_args_cps(interp, node.args, Any[]) do evaluated_args
         # Now dispatch based on head
+        # Note: special forms with blocks are handled at the StatementNode level
+        # via eval_node_with_block. If we get here for a special form, it has no block.
         if head in SPECIAL_FORMS
-            return eval_special_form(interp, head, evaluated_args, node.indented_block, k)
+            return eval_special_form(interp, head, evaluated_args, nothing, k)
         end
 
         # Check simple variable bindings (might be a lambda / reified continuation)
@@ -378,32 +324,92 @@ function eval_node(interp::CPSInterpreter, node::ExpressionNode, k::AbstractCont
         end
 
         # Try knowledge base (Prolog-style unification dispatch)
-        clauses = lookup_clauses(interp.knowledge_base, head)
+        clauses = find_clauses(interp.knowledge_base, head, length(evaluated_args))
         if !isempty(clauses)
-            return try_clauses_with_implicit_first(interp, clauses, evaluated_args, k)
+            return try_clauses_with_implicit_first(interp, clauses, head, evaluated_args, k)
+        end
+
+        # Also try with implicit first arg (one more param than provided args)
+        clauses_plus = find_clauses(interp.knowledge_base, head, length(evaluated_args) + 1)
+        if !isempty(clauses_plus)
+            return try_clauses_with_implicit_first(interp, clauses_plus, head, evaluated_args, k)
         end
 
         # Try built-in functions
-        if haskey(BUILTINS, head)
+        if haskey(CPS_BUILTINS, head)
             args_for_builtin = if isempty(evaluated_args) && !isempty(interp.stack)
                 # Implicit: pop from stack
                 [stack_pop!(interp)]
             else
                 evaluated_args
             end
-            result = BUILTINS[head](interp, args_for_builtin)
+            result = CPS_BUILTINS[head](interp, args_for_builtin)
             stack_push!(interp, result)
             return continue_with(k, result)
         end
 
-        throw(NoMatchingClauseError(head, evaluated_args))
+        throw(NoMatchingClauseError(head, evaluated_args, Clause[], node.location))
+    end
+end
+
+"""
+Evaluate an ExpressionNode that has an indented block (from the enclosing StatementNode).
+Special forms need access to this block.
+"""
+function eval_node_with_block(interp::CPSInterpreter, node::ExpressionNode,
+                               block::ASTNode, k::AbstractContinuation)
+    head = node.identifier.name
+
+    # Evaluate all arguments first
+    eval_args_cps(interp, node.args, Any[]) do evaluated_args
+        if head in SPECIAL_FORMS
+            return eval_special_form(interp, head, evaluated_args, block, k)
+        end
+
+        # Non-special-form with a block -- evaluate normally, block handled by StatementNode
+        # Check variable bindings
+        if haskey(interp.variables, head)
+            value = interp.variables[head]
+            if value isa ReifiedContinuation
+                arg = isempty(evaluated_args) ? stack_pop!(interp) : evaluated_args[1]
+                return continue_with(value, arg)
+            elseif value isa Function
+                result = value(evaluated_args...)
+                stack_push!(interp, result)
+                return continue_with(k, result)
+            end
+        end
+
+        # Try knowledge base
+        clauses = find_clauses(interp.knowledge_base, head, length(evaluated_args))
+        if !isempty(clauses)
+            return try_clauses_with_implicit_first(interp, clauses, head, evaluated_args, k)
+        end
+        clauses_plus = find_clauses(interp.knowledge_base, head, length(evaluated_args) + 1)
+        if !isempty(clauses_plus)
+            return try_clauses_with_implicit_first(interp, clauses_plus, head, evaluated_args, k)
+        end
+
+        # Try builtins
+        if haskey(CPS_BUILTINS, head)
+            args_for_builtin = if isempty(evaluated_args) && !isempty(interp.stack)
+                [stack_pop!(interp)]
+            else
+                evaluated_args
+            end
+            result = CPS_BUILTINS[head](interp, args_for_builtin)
+            stack_push!(interp, result)
+            return continue_with(k, result)
+        end
+
+        throw(NoMatchingClauseError(head, evaluated_args, Clause[], node.location))
     end
 end
 
 # -- CollectionNode: evaluate items, handle spread -------------------------
 
 function eval_node(interp::CPSInterpreter, node::CollectionNode, k::AbstractContinuation)
-    eval_collection_items(interp, node.items, node.is_spread, 1, Any[]) do collected
+    eval_collection_items(interp, node.items, 1, Any[]) do collected
         result = Tuple(collected)
         stack_push!(interp, result)
         return continue_with(k, result)
@@ -411,15 +417,17 @@ function eval_node(interp::CPSInterpreter, node::CollectionNode, k::AbstractCont
 end
 
 function eval_collection_items(callback::Function, interp::CPSInterpreter,
-                                items::Vector{ASTNode}, spreads::Vector{Bool},
+                                items::Vector{CollectionItemNode},
                                 idx::Int, acc::Vector{Any})
     if idx > length(items)
         return callback(acc)
     end
 
+    ci = items[idx]
+
     item_k = Continuation(
         function (value)
-            if spreads[idx]
+            if ci.expand
                 # Spread: splice the collection into the result
                 if value isa AbstractVector || value isa Tuple
                     append!(acc, collect(value))
@@ -429,26 +437,31 @@ function eval_collection_items(callback::Function, interp::CPSInterpreter,
             else
                 push!(acc, value)
             end
-            return eval_collection_items(callback, interp, items, spreads, idx + 1, acc)
+            return eval_collection_items(callback, interp, items, idx + 1, acc)
         end,
         "collection item $idx"
     )
 
-    return eval_node(interp, items[idx], item_k)
+    return eval_node(interp, ci.item, item_k)
 end
 
 # -- AssignmentNode: define a function in the knowledge base ---------------
 
 function eval_node(interp::CPSInterpreter, node::AssignmentNode, k::AbstractContinuation)
-    clause = Clause(node.name, node.params, node.guard, node.body)
-    add_clause!(interp.knowledge_base, clause)
-    return continue_with(k, Symbol(node.name))
-end
+    # Extract functor name and args from the left-hand side
+    if node.left isa ExpressionNode
+        functor = node.left.identifier.name
+        head_args = [ast_arg_to_term(a) for a in node.left.args]
+    elseif node.left isa IdentifierNode
+        functor = node.left.name
+        head_args = Term[]
+    else
+        error("AssignmentNode left side must be ExpressionNode or IdentifierNode, got: $(typeof(node.left))")
+    end
 
-# -- SpreadNode: evaluate inner, mark as spread ----------------------------
-
-function eval_node(interp::CPSInterpreter, node::SpreadNode, k::AbstractContinuation)
-    return eval_node(interp, node.inner, k)
+    clause = Clause(functor, head_args, node.right)
+    assert_clause!(interp.knowledge_base, clause)
+    return continue_with(k, Symbol(functor))
 end
 
 # ---------------------------------------------------------------------------
@@ -630,22 +643,23 @@ function eval_memoize(interp::CPSInterpreter, args::Vector{Any},
     isempty(args) && error("memoize requires a key argument")
 
     table_name = string(args[1])
-    # Build a hash key from the current stack top (the input)
+    # Build a key from the current stack top (the input)
     input = isempty(interp.stack) ? nothing : stack_peek(interp)
-    cache_key = hash(input)
+    cache_args = Any[input]
 
-    # Check cache
-    cached = table_get(interp.table_store, table_name, cache_key)
+    # Check cache using table_lookup (returns Union{Some, Nothing})
+    cached = table_lookup(interp.table_store, table_name, cache_args)
     if cached !== nothing
-        stack_push!(interp, cached)
-        return continue_with(k, cached)
+        value = something(cached)
+        stack_push!(interp, value)
+        return continue_with(k, value)
     end
 
     # Cache miss: evaluate block, then cache
     cache_k = Continuation(
         function (_)
             result = stack_pop!(interp)
-            table_put!(interp.table_store, table_name, cache_key, result)
+            table_store!(interp.table_store, table_name, cache_args, result)
             stack_push!(interp, result)
             return continue_with(k, result)
         end,
@@ -768,29 +782,53 @@ function eval_implicit_map(interp::CPSInterpreter, value,
 end
 
 # ---------------------------------------------------------------------------
-# Clause resolution (Prolog-style dispatch)
+# Clause resolution (Prolog-style dispatch via unification)
 # ---------------------------------------------------------------------------
 
 """
-Try to match args against clauses. First matching clause wins.
+Try to match args against clauses using real unification.
+First matching clause wins.
 """
 function try_clauses(interp::CPSInterpreter, clauses::Vector{Clause},
                      args::Vector{Any}, k::AbstractContinuation)
-    for clause in clauses
-        bindings = try_unify(clause.params, args)
-        bindings === nothing && continue
+    # Convert runtime args to Terms for unification
+    arg_terms = [value_to_term(a) for a in args]
 
-        # Check guard if present
-        if clause.guard !== nothing
-            guard_interp = child_interpreter(interp)
-            merge!(guard_interp.variables, bindings)
-            guard_result = eval_node_sync(guard_interp, clause.guard)
-            _truthy(guard_result) || continue
+    for clause in clauses
+        # Freshen variables to avoid capture
+        fresh = freshen_variables(clause)
+
+        # Unify each arg term with the corresponding head_arg
+        if length(fresh.head_args) != length(arg_terms)
+            continue
         end
+
+        subst = Substitution()
+        match_failed = false
+        for (pattern, arg_term) in zip(fresh.head_args, arg_terms)
+            result = unify(pattern, arg_term, subst)
+            if result === nothing
+                match_failed = true
+                break
+            end
+            subst = result
+        end
+        match_failed && continue
+
+        # Extract bindings from substitution: map variable names to runtime values
+        bindings = Dict{String, Any}()
+        for (var_name, term) in subst
+            resolved = apply_subst(subst, term)
+            bindings[var_name] = term_to_value(resolved)
+        end
+
+        # Also extract the original (un-freshened) variable names for user code
+        # We need to map fresh variable names back to original names
+        user_bindings = extract_user_bindings(clause, fresh, subst)
 
         # Match! Evaluate body with bindings
         body_interp = child_interpreter(interp)
-        merge!(body_interp.variables, bindings)
+        merge!(body_interp.variables, user_bindings)
 
         body_k = Continuation(
             function (_)
@@ -798,16 +836,34 @@ function try_clauses(interp::CPSInterpreter, clauses::Vector{Clause},
                 stack_push!(interp, result)
                 return continue_with(k, result)
             end,
-            "clause body for $(clause.name)"
+            "clause body for $(clause.head_functor)"
         )
 
         return eval_node(body_interp, clause.body, body_k)
     end
 
     throw(NoMatchingClauseError(
-        isempty(clauses) ? "?" : clauses[1].name,
-        args
+        isempty(clauses) ? "?" : clauses[1].head_functor,
+        args,
+        clauses,
+        SourceLocation()
     ))
+end
+
+"""
+Extract user-facing variable bindings by mapping original clause variable names
+to the values they were unified with.
+"""
+function extract_user_bindings(original::Clause, freshened::Clause, subst::Substitution)::Dict{String, Any}
+    bindings = Dict{String, Any}()
+    for (orig_term, fresh_term) in zip(original.head_args, freshened.head_args)
+        if orig_term isa Variable && fresh_term isa Variable
+            # Look up the freshened variable name in the substitution
+            resolved = apply_subst(subst, fresh_term)
+            bindings[orig_term.name] = term_to_value(resolved)
+        end
+    end
+    return bindings
 end
 
 """
@@ -816,72 +872,40 @@ if a function has N params but we have N-1 args, pop the stack top as arg 1.
 """
 function try_clauses_with_implicit_first(interp::CPSInterpreter,
                                           clauses::Vector{Clause},
+                                          functor::String,
                                           args::Vector{Any},
                                           k::AbstractContinuation)
-    # First try direct match
-    for clause in clauses
-        if length(clause.params) == length(args)
-            bindings = try_unify(clause.params, args)
-            if bindings !== nothing
-                return try_clauses(interp, [clause], args, k)
-            end
+    # First try direct match (clauses with same arity as args)
+    direct_clauses = filter(c -> length(c.head_args) == length(args), clauses)
+    if !isempty(direct_clauses)
+        # Try unification on direct match candidates
+        try
+            return try_clauses(interp, direct_clauses, args, k)
+        catch e
+            e isa NoMatchingClauseError || rethrow(e)
+            # Fall through to implicit first arg
         end
     end
 
-    # Try implicit first argument
-    for clause in clauses
-        if length(clause.params) == length(args) + 1 && !isempty(interp.stack)
-            implicit_first = stack_pop!(interp)
-            full_args = vcat([implicit_first], args)
-            bindings = try_unify(clause.params, full_args)
-            if bindings !== nothing
-                return try_clauses(interp, [clause], full_args, k)
-            end
-            # Didn't match, put it back
-            stack_push!(interp, implicit_first)
-        end
-    end
-
-    # Fall through to error
-    return try_clauses(interp, clauses, args, k)
-end
-
-# ---------------------------------------------------------------------------
-# Unification (simplified pattern matching)
-# ---------------------------------------------------------------------------
-
-"""
-Try to unify parameter names with argument values.
-Returns a Dict of bindings on success, nothing on failure.
-
-This is a simplified version -- real Prolog unification would handle
-nested terms, but this is a stack language that adds numbers, so...
-"""
-function try_unify(params::Vector{String}, args::Vector{Any})
-    length(params) != length(args) && return nothing
-
-    bindings = Dict{String, Any}()
-
-    for (param, arg) in zip(params, args)
-        if startswith(param, "_")
-            # Wildcard -- matches anything, no binding
-            continue
-        elseif startswith(param, ":")
-            # Literal match -- param `:foo` must equal the symbol :foo
-            expected = Symbol(param[2:end])
-            arg == expected || return nothing
-        else
-            # Variable -- bind it
-            if haskey(bindings, param)
-                # Already bound -- must match
-                bindings[param] == arg || return nothing
+    # Try implicit first argument (clauses with arity = length(args) + 1)
+    implicit_clauses = filter(c -> length(c.head_args) == length(args) + 1, clauses)
+    if !isempty(implicit_clauses) && !isempty(interp.stack)
+        implicit_first = stack_pop!(interp)
+        full_args = vcat([implicit_first], args)
+        try
+            return try_clauses(interp, implicit_clauses, full_args, k)
+        catch e
+            if e isa NoMatchingClauseError
+                # Didn't match, put it back
+                stack_push!(interp, implicit_first)
             else
-                bindings[param] = arg
+                rethrow(e)
             end
         end
     end
 
-    return bindings
+    # Fall through to error with all clauses
+    throw(NoMatchingClauseError(functor, args, clauses, SourceLocation()))
 end
 
 # ---------------------------------------------------------------------------
@@ -943,3 +967,8 @@ Run a program with a pre-configured interpreter (for REPL use).
 function run_program(interp::CPSInterpreter, ast::ASTNode)
     return eval_node(interp, ast, HaltContinuation())
 end
+
+"""
+Alias for run_program, used by the CLI and macro system.
+"""
+eval_program(interp::CPSInterpreter, ast::ASTNode) = run_program(interp, ast)

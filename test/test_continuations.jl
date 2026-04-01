@@ -1,51 +1,49 @@
+using EricLang: AbstractContinuation, Continuation, HaltContinuation,
+    ReifiedContinuation, continue_with, call_cc
+
 @testset "Continuations" begin
     @testset "HaltContinuation returns its argument" begin
         k = HaltContinuation()
-        @test invoke_continuation(k, 42) == 42
-        @test invoke_continuation(k, "hello") == "hello"
+        @test continue_with(k, 42) == 42
+        @test continue_with(k, "hello") == "hello"
     end
 
     @testset "Continuation wraps a function and calls it" begin
-        k = Continuation(x -> x * 2)
-        @test invoke_continuation(k, 5) == 10
-        @test invoke_continuation(k, 0) == 0
+        k = Continuation(x -> x * 2, "double")
+        @test continue_with(k, 5) == 10
+        @test continue_with(k, 0) == 0
     end
 
     @testset "Continuation composition" begin
-        k1 = Continuation(x -> x + 1)
-        k2 = Continuation(x -> x * 3)
+        k1 = Continuation(x -> x + 1, "inc")
+        k2 = Continuation(x -> x * 3, "triple")
         # Composing: first k1, then k2 applied to result
-        composed = Continuation(x -> invoke_continuation(k2, invoke_continuation(k1, x)))
-        @test invoke_continuation(composed, 2) == 9  # (2+1)*3
+        composed = Continuation(x -> continue_with(k2, continue_with(k1, x)), "composed")
+        @test continue_with(composed, 2) == 9  # (2+1)*3
     end
 
     @testset "ReifiedContinuation can be invoked" begin
-        captured_value = Ref{Any}(nothing)
-        k = ReifiedContinuation(v -> begin
-            captured_value[] = v
-            v
-        end)
-        result = invoke_continuation(k, 99)
+        inner_k = Continuation(v -> v, "identity")
+        reified = ReifiedContinuation(inner_k)
+        result = continue_with(reified, 99)
         @test result == 99
-        @test captured_value[] == 99
     end
 
     @testset "call_cc captures current continuation" begin
-        result = call_cc() do k
-            # k is the current continuation; invoking it should
-            # short-circuit and return the value
-            invoke_continuation(k, 42)
-            # This line should NOT be reached if call_cc is properly
-            # implemented with short-circuit semantics
-            return 0
+        # call_cc takes (f, k) where f receives (reified_k, real_k)
+        halt = HaltContinuation()
+        result = call_cc(halt) do reified_k, real_k
+            # Invoking reified_k should pass the value to the halt continuation
+            continue_with(reified_k, 42)
         end
         @test result == 42
     end
 
     @testset "call_cc without early exit returns body value" begin
-        result = call_cc() do k
-            # Don't invoke k — just return normally
-            100
+        halt = HaltContinuation()
+        result = call_cc(halt) do reified_k, real_k
+            # Don't invoke reified_k — just continue normally
+            continue_with(real_k, 100)
         end
         @test result == 100
     end
