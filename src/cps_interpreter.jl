@@ -116,16 +116,26 @@ register_cps_builtin!("cons",   (interp, args) -> vcat([args[1]], args[2]))
 register_cps_builtin!("append", (interp, args) -> vcat(args[1], args[2]))
 register_cps_builtin!("range",  (interp, args) -> collect(args[1]:args[2]))
 
-# IO (collected as actions, not executed -- we're pure, obviously)
+# IO (collected as actions AND printed to stdout -- pragmatism wins)
 register_cps_builtin!("print", (interp, args) -> begin
-    action = (:print, args[1])
-    push!(interp.io_actions, action)
-    args[1]
+    val = if isempty(args)
+        isempty(interp.stack) ? nothing : stack_peek(interp)
+    else
+        args[1]
+    end
+    println(val)
+    push!(interp.io_actions, (:print, val))
+    val
 end)
 register_cps_builtin!("println", (interp, args) -> begin
-    action = (:println, args[1])
-    push!(interp.io_actions, action)
-    args[1]
+    val = if isempty(args)
+        isempty(interp.stack) ? nothing : stack_pop!(interp)
+    else
+        args[1]
+    end
+    println(val)
+    push!(interp.io_actions, (:println, val))
+    val
 end)
 
 # Type checks
@@ -135,6 +145,60 @@ register_cps_builtin!("is_list",    (interp, args) -> args[1] isa AbstractVector
 register_cps_builtin!("is_tuple",   (interp, args) -> args[1] isa Tuple)
 register_cps_builtin!("to_string",  (interp, args) -> string(args[1]))
 register_cps_builtin!("to_number",  (interp, args) -> parse(Float64, string(args[1])))
+
+# eric-lang core builtins
+register_cps_builtin!("_", (interp, args) -> begin
+    isempty(interp.stack) ? nothing : stack_peek(interp)
+end)
+register_cps_builtin!("_1", (interp, args) -> begin
+    isempty(interp.stack) ? nothing : stack_peek(interp)
+end)
+register_cps_builtin!("_2", (interp, args) -> begin
+    length(interp.stack) >= 2 ? interp.stack[end-1] : nothing
+end)
+register_cps_builtin!("stdin", (interp, args) -> read(stdin, String))
+register_cps_builtin!("split", (interp, args) -> begin
+    if length(args) == 1
+        data = stack_pop!(interp)
+        delim = args[1]
+    elseif length(args) >= 2
+        data = args[1]
+        delim = args[2]
+    else
+        error("split requires at least 1 argument")
+    end
+    Tuple(split(string(data), string(delim)))
+end)
+register_cps_builtin!("int", (interp, args) -> begin
+    val = isempty(args) ? stack_pop!(interp) : args[1]
+    parse(Int, string(val))
+end)
+register_cps_builtin!("sum", (interp, args) -> begin
+    coll = isempty(args) ? stack_pop!(interp) : args[1]
+    sum(coll)
+end)
+register_cps_builtin!("get", (interp, args) -> begin
+    if length(args) == 2
+        data, idx = args[1], args[2]
+    elseif length(args) == 1
+        data = stack_pop!(interp)
+        idx = args[1]
+    else
+        error("get requires 1-2 arguments")
+    end
+    idx < 0 ? data[end + idx + 1] : data[idx + 1]  # 0-indexed
+end)
+register_cps_builtin!("set", (interp, args) -> begin
+    if length(args) == 3
+        data, idx, item = args[1], args[2], args[3]
+    else
+        data = stack_pop!(interp)
+        idx, item = args[1], args[2]
+    end
+    result = collect(data)
+    result[idx < 0 ? end + idx + 1 : idx + 1] = item
+    Tuple(result)
+end)
 
 # ---------------------------------------------------------------------------
 # Helper: convert AST arg node to a Term for Clause construction
@@ -231,8 +295,25 @@ function eval_node(interp::CPSInterpreter, node::StatementNode, k::AbstractConti
         function (value)
             # Handle `as` binding (node.names is a Vector{IdentifierNode})
             if !isempty(node.names)
-                for id_node in node.names
-                    interp.variables[id_node.name] = value
+                if length(node.names) == 1
+                    # Single name: bind the whole value
+                    interp.variables[node.names[1].name] = value
+                else
+                    # Multiple names: destructure a tuple/collection
+                    items = if value isa Tuple
+                        collect(value)
+                    elseif value isa AbstractVector
+                        value
+                    else
+                        error("Cannot destructure non-collection with multiple `as` bindings, got: $(typeof(value))")
+                    end
+                    for (i, id_node) in enumerate(node.names)
+                        if i <= length(items)
+                            interp.variables[id_node.name] = items[i]
+                        else
+                            interp.variables[id_node.name] = nothing
+                        end
+                    end
                 end
             end
 
@@ -279,11 +360,12 @@ function eval_node(interp::CPSInterpreter, node::IdentifierNode, k::AbstractCont
         return continue_with(k, value)
     end
 
-    # 2. Check if it's a known builtin (return as a callable)
+    # 2. Check if it's a known builtin — execute it as a zero-arg call
+    #    The builtin itself handles stack operations (pop/push).
     if haskey(CPS_BUILTINS, name)
-        # Push the builtin function reference as a value
-        stack_push!(interp, CPS_BUILTINS[name])
-        return continue_with(k, CPS_BUILTINS[name])
+        result = CPS_BUILTINS[name](interp, Any[])
+        # Don't push again — the builtin already manages the stack
+        return continue_with(k, result)
     end
 
     # 3. Check knowledge base (zero-arg function)
@@ -307,6 +389,14 @@ function eval_node(interp::CPSInterpreter, node::ExpressionNode, k::AbstractCont
         # via eval_node_with_block. If we get here for a special form, it has no block.
         if head in SPECIAL_FORMS
             return eval_special_form(interp, head, evaluated_args, nothing, k)
+        end
+
+        # Clean up stack from arg evaluation side-effects
+        # (each arg was pushed by eval_node during evaluation)
+        for _ in 1:length(evaluated_args)
+            if !isempty(interp.stack)
+                stack_pop!(interp)
+            end
         end
 
         # Check simple variable bindings (might be a lambda / reified continuation)
@@ -363,6 +453,13 @@ function eval_node_with_block(interp::CPSInterpreter, node::ExpressionNode,
     # Evaluate all arguments first
     eval_args_cps(interp, node.args, Any[]) do evaluated_args
         if head in SPECIAL_FORMS
+            # Each arg evaluation pushes a value onto the stack via eval_node.
+            # Pop those values so the stack is in the same state it was before
+            # arg evaluation -- special forms like reduce expect the collection
+            # (pushed by a prior statement) to be on top of the stack.
+            for _ in 1:length(evaluated_args)
+                stack_pop!(interp)
+            end
             return eval_special_form(interp, head, evaluated_args, block, k)
         end
 
@@ -544,9 +641,9 @@ function eval_reduce(interp::CPSInterpreter, args::Vector{Any},
         end
 
         sub = child_interpreter(interp)
-        # Push accumulator and current element onto sub-interpreter stack
-        stack_push!(sub, acc)
-        stack_push!(sub, items[idx])
+        # Push (accumulator, element) as a tuple onto sub-interpreter stack
+        # so that `as acc, d` can destructure it
+        stack_push!(sub, (acc, items[idx]))
 
         fold_k = Continuation(
             function (_)

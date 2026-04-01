@@ -143,9 +143,9 @@ function parse_stmt!(p::Parser)::StatementNode
         # Assignment: either indented block or simple expression
         if peek(p, T_INDENT)
             advance!(p)
-            block = parse_module!(p)
+            rhs_block = parse_module!(p)
             expect!(p, T_DEDENT)
-            return StatementNode(expr, names, block, loc)
+            return StatementNode(AssignmentNode(expr, rhs_block, loc), names, nothing, loc)
         else
             rhs = parse_expr!(p)
             return StatementNode(AssignmentNode(expr, rhs, loc), names, nothing, loc)

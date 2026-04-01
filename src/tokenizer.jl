@@ -40,7 +40,9 @@ function tokenize(source::String, filename::String="<stdin>")::Vector{Token}
 
         # --- blank / empty line ---
         if isempty(content)
-            if prev_was_code && paren_depth == 0
+            if prev_was_code && paren_depth == 0 && length(indent_stack) == 1
+                # Only emit EMPTY at top level — blank lines inside indented blocks
+                # are just whitespace, not block separators
                 push!(tokens, Token(T_EMPTY, "", SourceLocation(filename, lineno, 1)))
                 prev_was_code = false
             end
